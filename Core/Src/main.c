@@ -117,6 +117,7 @@ int8_t MountFile(int force);
 FRESULT ReadWavHeader(FIL *audioFile, WAV_HeaderTypeDef *wavHeader) ;
 MAXRESULT SDInit(char* fileName);
 void StartAudioPlayback(void);
+void AdjustVolume(void* buffer, uint16_t size, uint16_t vol);
 //static void platform_delay(uint32_t ms);
 
 int _write(int file, char *ptr, int len)
@@ -264,10 +265,12 @@ int main(void)
 			if (currentBuffer == 0)
 				{
 					FillBuffer(&audioFile, bufferA, BUFFER_SIZE);
+					//printf("Filled Buffer A!\n");
 				}
 				else
 				{
 					FillBuffer(&audioFile, bufferB, BUFFER_SIZE);
+					//printf("Filled Buffer B!\n");
 				}
 			fillBuffer = 0;
 	      }
@@ -588,8 +591,8 @@ void FillBuffer(FIL *audioFileP, uint16_t *buffer, uint32_t size)
 {
     UINT bytesRead = 0;
     while(hdma_sdmmc1.State != HAL_DMA_STATE_READY){}
-    FRESULT res = f_read(audioFileP, buffer, size * sizeof(uint16_t), &bytesRead);
-    if (res != FR_OK || bytesRead < size * sizeof(uint16_t))
+    FRESULT res = f_read(audioFileP, buffer, size, &bytesRead);
+    if (res != FR_OK || bytesRead < size)
     {
         // Handle end of file or read error
         HAL_SAI_DMAStop(&hsai_BlockA1);
@@ -597,6 +600,8 @@ void FillBuffer(FIL *audioFileP, uint16_t *buffer, uint32_t size)
         fillBuffer = 0;
         if (res != FR_OK)Error_Handler();
     }
+
+    //AdjustVolume(buffer, size, 20);
 }
 
 FRESULT ReadWavHeader(FIL *audioFile, WAV_HeaderTypeDef *wavHeader) {

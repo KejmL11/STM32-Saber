@@ -64,8 +64,8 @@ all: main-build
 main-build: Saber.elf secondary-outputs
 
 # Tool invocations
-Saber.elf Saber.map: $(OBJS) $(USER_OBJS) D:\STMWorkspace\Saber\STM32L431RCTX_FLASH.ld makefile objects.list $(OPTIONAL_TOOL_DEPS)
-	arm-none-eabi-gcc -o "Saber.elf" @"objects.list" $(USER_OBJS) $(LIBS) -mcpu=cortex-m4 -T"D:\STMWorkspace\Saber\STM32L431RCTX_FLASH.ld" --specs=nosys.specs -Wl,-Map="Saber.map" -Wl,--gc-sections -static --specs=nano.specs -mfpu=fpv4-sp-d16 -mfloat-abi=hard -mthumb -Wl,--start-group -lc -lm -Wl,--end-group
+Saber.elf Saber.map: $(OBJS) $(USER_OBJS) C:\Users\Kamil\STM32CubeIDE\Workspace\Saber\STM32L431RCTX_FLASH.ld makefile objects.list $(OPTIONAL_TOOL_DEPS)
+	arm-none-eabi-gcc -o "Saber.elf" @"objects.list" $(USER_OBJS) $(LIBS) -mcpu=cortex-m4 -T"C:\Users\Kamil\STM32CubeIDE\Workspace\Saber\STM32L431RCTX_FLASH.ld" --specs=nosys.specs -Wl,-Map="Saber.map" -Wl,--gc-sections -static --specs=nano.specs -mfpu=fpv4-sp-d16 -mfloat-abi=hard -mthumb -Wl,--start-group -lc -lm -Wl,--end-group
 	@echo 'Finished building target: $@'
 	@echo ' '
 
