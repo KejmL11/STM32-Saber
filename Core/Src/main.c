@@ -36,7 +36,7 @@
 /* Private define ------------------------------------------------------------*/
 /* USER CODE BEGIN PD */
 #define MAX_LED 59 // LED Count
-#define SENSOR_BUS hi2c1
+#define SENSOR_BUS hi2c2
 //#define I2C_ENABLE
 //#define NEO_ENABLE
 #define SD_ENABLE
@@ -69,6 +69,7 @@ uint16_t bufferB[BUFFER_SIZE];
 volatile uint8_t bufferReady = 0;
 uint8_t currentBuffer = 0;
 uint8_t fillBuffer = 0;
+uint8_t playing = 0;
 
 #ifdef NEO_ENABLE
 uint8_t LED_Data[MAX_LED][4];
@@ -113,10 +114,10 @@ static void tx_com( uint8_t *tx_buffer, uint16_t len );
 #endif
 
 void FillBuffer(FIL *audioFileP, uint16_t *buffer, uint32_t size);
-int8_t MountFile(int force);
+int8_t MountFileSystem(int force);
 FRESULT ReadWavHeader(FIL *audioFile, WAV_HeaderTypeDef *wavHeader) ;
 MAXRESULT SDInit(char* fileName);
-void StartAudioPlayback(void);
+void StartAudioPlayback(char* fileToPlay);
 void AdjustVolume(void* buffer, uint16_t size, uint16_t vol);
 //static void platform_delay(uint32_t ms);
 
@@ -170,14 +171,12 @@ int main(void)
   MX_TIM1_Init();
   MX_FATFS_Init();
   /* USER CODE BEGIN 2 */
-  StartAudioPlayback();
 
 #ifdef I2C_ENABLE
   stmdev_ctx_t dev_ctx;
   dev_ctx.write_reg = platform_write;
   dev_ctx.read_reg = platform_read;
   dev_ctx.handle = &SENSOR_BUS;
-  platform_delay(BOOT_TIME);
   lsm6dsr_device_id_get(&dev_ctx, &whoamI);
     if (whoamI != LSM6DSR_ID)
       while (1);
@@ -215,49 +214,16 @@ int main(void)
 
 	        memset(data_raw_acceleration, 0x00, 3 * sizeof(int16_t));
 	        lsm6dsr_acceleration_raw_get(&dev_ctx, data_raw_acceleration);
-	        acceleration_mg[0] =
-	          lsm6dsr_from_fs2g_to_mg(data_raw_acceleration[0]);
-	        acceleration_mg[1] =
-	          lsm6dsr_from_fs2g_to_mg(data_raw_acceleration[1]);
-	        acceleration_mg[2] =
-	          lsm6dsr_from_fs2g_to_mg(data_raw_acceleration[2]);
-	        sprintf((char *)tx_buffer,
+	        acceleration_mg[0] = lsm6dsr_from_fs2g_to_mg(data_raw_acceleration[0]);
+	        acceleration_mg[1] = lsm6dsr_from_fs2g_to_mg(data_raw_acceleration[1]);
+	        acceleration_mg[2] = lsm6dsr_from_fs2g_to_mg(data_raw_acceleration[2]);
+	        printf((char *)tx_buffer,
 	                "Acceleration [mg]:%4.2f\t%4.2f\t%4.2f\r\n",
 	                acceleration_mg[0], acceleration_mg[1], acceleration_mg[2]);
-	        tx_com(tx_buffer, strlen((char const *)tx_buffer));
-	      }
-
-	      lsm6dsr_gy_flag_data_ready_get(&dev_ctx, &reg);
-
-	      if (reg) {
-	        memset(data_raw_angular_rate, 0x00, 3 * sizeof(int16_t));
-	        lsm6dsr_angular_rate_raw_get(&dev_ctx, data_raw_angular_rate);
-	        angular_rate_mdps[0] =
-	          lsm6dsr_from_fs2000dps_to_mdps(data_raw_angular_rate[0]);
-	        angular_rate_mdps[1] =
-	          lsm6dsr_from_fs2000dps_to_mdps(data_raw_angular_rate[1]);
-	        angular_rate_mdps[2] =
-	          lsm6dsr_from_fs2000dps_to_mdps(data_raw_angular_rate[2]);
-	        sprintf((char *)tx_buffer,
-	                "Angular rate [mdps]:%4.2f\t%4.2f\t%4.2f\r\n",
-	                angular_rate_mdps[0], angular_rate_mdps[1], angular_rate_mdps[2]);
-	        tx_com(tx_buffer, strlen((char const *)tx_buffer));
-	      }
-
-	      lsm6dsr_temp_flag_data_ready_get(&dev_ctx, &reg);
-
-	      if (reg) {
-	        memset(&data_raw_temperature, 0x00, sizeof(int16_t));
-	        lsm6dsr_temperature_raw_get(&dev_ctx, &data_raw_temperature);
-	        temperature_degC = lsm6dsr_from_lsb_to_celsius(
-	                             data_raw_temperature);
-	        sprintf((char *)tx_buffer,
-	                "Temperature [degC]:%6.2f\r\n", temperature_degC);
-	        tx_com(tx_buffer, strlen((char const *)tx_buffer));
 	      }
 
 #endif
-
+	  	  if(!playing)StartAudioPlayback("ON.WAV");
 	      //printf("Looping\n\r");
 	      if (fillBuffer)
 	      {
@@ -308,7 +274,7 @@ void SystemClock_Config(void)
   RCC_OscInitStruct.PLL.PLLM = 1;
   RCC_OscInitStruct.PLL.PLLN = 20;
   RCC_OscInitStruct.PLL.PLLP = RCC_PLLP_DIV7;
-  RCC_OscInitStruct.PLL.PLLQ = RCC_PLLQ_DIV8;
+  RCC_OscInitStruct.PLL.PLLQ = RCC_PLLQ_DIV4;
   RCC_OscInitStruct.PLL.PLLR = RCC_PLLR_DIV2;
   if (HAL_RCC_OscConfig(&RCC_OscInitStruct) != HAL_OK)
   {
@@ -346,7 +312,7 @@ static void MX_I2C2_Init(void)
 
   /* USER CODE END I2C2_Init 1 */
   hi2c2.Instance = I2C2;
-  hi2c2.Init.Timing = 0x10909CEC;
+  hi2c2.Init.Timing = 0x10D19CE4;
   hi2c2.Init.OwnAddress1 = 0;
   hi2c2.Init.AddressingMode = I2C_ADDRESSINGMODE_7BIT;
   hi2c2.Init.DualAddressMode = I2C_DUALADDRESS_DISABLE;
@@ -433,9 +399,9 @@ static void MX_SDMMC1_SD_Init(void)
   hsd1.Init.ClockEdge = SDMMC_CLOCK_EDGE_RISING;
   hsd1.Init.ClockBypass = SDMMC_CLOCK_BYPASS_DISABLE;
   hsd1.Init.ClockPowerSave = SDMMC_CLOCK_POWER_SAVE_DISABLE;
-  hsd1.Init.BusWide = SDMMC_BUS_WIDE_1B;
-  hsd1.Init.HardwareFlowControl = SDMMC_HARDWARE_FLOW_CONTROL_DISABLE;
-  hsd1.Init.ClockDiv = 5;
+  hsd1.Init.BusWide = SDMMC_BUS_WIDE_4B;
+  hsd1.Init.HardwareFlowControl = SDMMC_HARDWARE_FLOW_CONTROL_ENABLE;
+  hsd1.Init.ClockDiv = 2;
   /* USER CODE BEGIN SDMMC1_Init 2 */
 
   /* USER CODE END SDMMC1_Init 2 */
@@ -595,17 +561,19 @@ void FillBuffer(FIL *audioFileP, uint16_t *buffer, uint32_t size)
     if (res != FR_OK || bytesRead < size)
     {
         // Handle end of file or read error
+    	while(hdma_sdmmc1.State != HAL_DMA_STATE_READY){}
         HAL_SAI_DMAStop(&hsai_BlockA1);
         f_close(audioFileP);
+        playing = 0;
         fillBuffer = 0;
-        if (res != FR_OK)Error_Handler();
     }
 
     //AdjustVolume(buffer, size, 20);
 }
 
 FRESULT ReadWavHeader(FIL *audioFile, WAV_HeaderTypeDef *wavHeader) {
-    UINT bytesRead;
+
+	UINT bytesRead;
     FRESULT res;
 
     // Read the WAV header
@@ -623,8 +591,10 @@ FRESULT ReadWavHeader(FIL *audioFile, WAV_HeaderTypeDef *wavHeader) {
     return FR_OK;
 }
 
-int8_t MountFile(int force)
+int8_t MountFileSystem(int force)
 {
+	int i = 0;
+	for (i=0;i<50;i++);
 	if(f_mount(&fs, "", force) != FR_OK) return 0;
 	printf("File Mounted\n");
 	return 1;
@@ -633,7 +603,9 @@ int8_t MountFile(int force)
 MAXRESULT SDInit(char* fileName)
 {
 	FRESULT res;
-	if (MountFile(1)!= 1) return MAX_MOUNTERR;
+	if (MountFileSystem(1)!= 1)
+		return MAX_MOUNTERR;
+	printf("Opening File\n");
 	//Open WAV file
 
 	res = f_open(&audioFile, fileName, FA_READ | FA_OPEN_EXISTING);
@@ -659,9 +631,10 @@ void AdjustVolume(void* buffer, uint16_t size, uint16_t vol)
       s++;
     }
 }
-void StartAudioPlayback(void)
+void StartAudioPlayback(char* fileToPlay)
 {
-	if(SDInit("ON.WAV")!= MAX_SUCCESS) Error_Handler();
+	if(SDInit(fileToPlay)!= MAX_SUCCESS) Error_Handler();
+	playing = 1;
 	FillBuffer(&audioFile, bufferA, BUFFER_SIZE);
 	FillBuffer(&audioFile, bufferB, BUFFER_SIZE);
 	HAL_StatusTypeDef dmaStatus = HAL_SAI_Transmit_DMA(&hsai_BlockA1, (uint8_t*) bufferA, BUFFER_SIZE);
@@ -766,6 +739,7 @@ void Error_Handler(void)
 {
   /* USER CODE BEGIN Error_Handler_Debug */
   /* User can add his own implementation to report the HAL error return state */
+	printf(" Error\n");
   __disable_irq();
   f_mount(NULL, "/", 1);
   while (1)
