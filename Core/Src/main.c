@@ -113,7 +113,7 @@ static int32_t platform_read(void *handle, uint8_t reg, uint8_t *bufp,
 static void tx_com( uint8_t *tx_buffer, uint16_t len );
 #endif
 
-void FillBuffer(FIL *audioFileP, uint16_t *buffer, uint32_t size);
+void FillBuffer();
 int8_t MountFileSystem(int force);
 FRESULT ReadWavHeader(FIL *audioFile, WAV_HeaderTypeDef *wavHeader) ;
 MAXRESULT SDInit(char* fileName);
@@ -173,31 +173,7 @@ int main(void)
   /* USER CODE BEGIN 2 */
 
 #ifdef I2C_ENABLE
-  stmdev_ctx_t dev_ctx;
-  dev_ctx.write_reg = platform_write;
-  dev_ctx.read_reg = platform_read;
-  dev_ctx.handle = &SENSOR_BUS;
-  lsm6dsr_device_id_get(&dev_ctx, &whoamI);
-    if (whoamI != LSM6DSR_ID)
-      while (1);
-
-  lsm6dsr_reset_set(&dev_ctx, PROPERTY_ENABLE);
-  do {
-     lsm6dsr_reset_get(&dev_ctx, &rst);
-   } while (rst);
-
-  lsm6dsr_i3c_disable_set(&dev_ctx, LSM6DSR_I3C_DISABLE);
-
-  lsm6dsr_block_data_update_set(&dev_ctx, PROPERTY_ENABLE);
-
-  lsm6dsr_xl_data_rate_set(&dev_ctx, LSM6DSR_XL_ODR_12Hz5);
-  lsm6dsr_gy_data_rate_set(&dev_ctx, LSM6DSR_GY_ODR_12Hz5);
-
-  lsm6dsr_xl_full_scale_set(&dev_ctx, LSM6DSR_2g);
-  lsm6dsr_gy_full_scale_set(&dev_ctx, LSM6DSR_2000dps);
-
-  lsm6dsr_xl_hp_path_on_out_set(&dev_ctx, LSM6DSR_LP_ODR_DIV_100);
-  lsm6dsr_xl_filter_lp2_set(&dev_ctx, PROPERTY_ENABLE);
+  I2CInit();
 #endif
 
   /* USER CODE END 2 */
@@ -223,23 +199,8 @@ int main(void)
 	      }
 
 #endif
-	  	  if(!playing)StartAudioPlayback("ON.WAV");
 	      //printf("Looping\n\r");
-	      if (fillBuffer)
-	      {
-	    	currentBuffer = 1 - currentBuffer;  // Toggle between 0 and 1
-			if (currentBuffer == 0)
-				{
-					FillBuffer(&audioFile, bufferA, BUFFER_SIZE);
-					//printf("Filled Buffer A!\n");
-				}
-				else
-				{
-					FillBuffer(&audioFile, bufferB, BUFFER_SIZE);
-					//printf("Filled Buffer B!\n");
-				}
-			fillBuffer = 0;
-	      }
+	  	  if (HAL_GPIO_ReadPin(GPIOA,BUTTON_Pin) == GPIO_PIN_SET && playing == 0)StartAudioPlayback("ON.WAV");
 
   }
     /* USER CODE END WHILE */
@@ -401,7 +362,7 @@ static void MX_SDMMC1_SD_Init(void)
   hsd1.Init.ClockPowerSave = SDMMC_CLOCK_POWER_SAVE_DISABLE;
   hsd1.Init.BusWide = SDMMC_BUS_WIDE_4B;
   hsd1.Init.HardwareFlowControl = SDMMC_HARDWARE_FLOW_CONTROL_ENABLE;
-  hsd1.Init.ClockDiv = 2;
+  hsd1.Init.ClockDiv = 1;
   /* USER CODE BEGIN SDMMC1_Init 2 */
 
   /* USER CODE END SDMMC1_Init 2 */
@@ -553,17 +514,49 @@ static void MX_GPIO_Init(void)
 
 /* USER CODE BEGIN 4 */
 
-void FillBuffer(FIL *audioFileP, uint16_t *buffer, uint32_t size)
+void I2CInit()
+{
+	stmdev_ctx_t dev_ctx;
+	dev_ctx.write_reg = platform_write;
+	dev_ctx.read_reg = platform_read;
+	dev_ctx.handle = &SENSOR_BUS;
+	lsm6dsr_device_id_get(&dev_ctx, &whoamI);
+	  if (whoamI != LSM6DSR_ID)
+		while (1);
+
+	lsm6dsr_reset_set(&dev_ctx, PROPERTY_ENABLE);
+	do {
+	   lsm6dsr_reset_get(&dev_ctx, &rst);
+	 } while (rst);
+
+	lsm6dsr_i3c_disable_set(&dev_ctx, LSM6DSR_I3C_DISABLE);
+
+	lsm6dsr_block_data_update_set(&dev_ctx, PROPERTY_ENABLE);
+
+	lsm6dsr_xl_data_rate_set(&dev_ctx, LSM6DSR_XL_ODR_12Hz5);
+	lsm6dsr_gy_data_rate_set(&dev_ctx, LSM6DSR_GY_ODR_12Hz5);
+
+	lsm6dsr_xl_full_scale_set(&dev_ctx, LSM6DSR_2g);
+	lsm6dsr_gy_full_scale_set(&dev_ctx, LSM6DSR_2000dps);
+
+	lsm6dsr_xl_hp_path_on_out_set(&dev_ctx, LSM6DSR_LP_ODR_DIV_100);
+	lsm6dsr_xl_filter_lp2_set(&dev_ctx, PROPERTY_ENABLE);
+}
+
+void FillBuffer()
 {
     UINT bytesRead = 0;
     while(hdma_sdmmc1.State != HAL_DMA_STATE_READY){}
-    FRESULT res = f_read(audioFileP, buffer, size, &bytesRead);
-    if (res != FR_OK || bytesRead < size)
+    currentBuffer = 1 - currentBuffer;
+    FRESULT res;
+    if (currentBuffer == 1) res = f_read(&audioFile, &bufferA, BUFFER_SIZE, &bytesRead);
+    else res = f_read(&audioFile, &bufferB, BUFFER_SIZE, &bytesRead);
+    if (res != FR_OK || bytesRead < BUFFER_SIZE)
     {
         // Handle end of file or read error
     	while(hdma_sdmmc1.State != HAL_DMA_STATE_READY){}
         HAL_SAI_DMAStop(&hsai_BlockA1);
-        f_close(audioFileP);
+        f_close(&audioFile);
         playing = 0;
         fillBuffer = 0;
     }
@@ -635,8 +628,7 @@ void StartAudioPlayback(char* fileToPlay)
 {
 	if(SDInit(fileToPlay)!= MAX_SUCCESS) Error_Handler();
 	playing = 1;
-	FillBuffer(&audioFile, bufferA, BUFFER_SIZE);
-	FillBuffer(&audioFile, bufferB, BUFFER_SIZE);
+	FillBuffer();
 	HAL_StatusTypeDef dmaStatus = HAL_SAI_Transmit_DMA(&hsai_BlockA1, (uint8_t*) bufferA, BUFFER_SIZE);
 	if (dmaStatus != HAL_OK) Error_Handler();
 }
@@ -644,12 +636,14 @@ void StartAudioPlayback(char* fileToPlay)
 void HAL_SAI_TxCpltCallback(SAI_HandleTypeDef *hsai_BlockA1)
 {
 	//printf("Transfer Complete!\n");
+	FillBuffer();
 	fillBuffer = 1;
 }
 
 void HAL_SAI_TxHalfCpltCallback(SAI_HandleTypeDef *hsai_BlockA1)
 {
 	//printf("Transfer Half Complete!\n");
+	FillBuffer();
 	fillBuffer = 1;
 }
 

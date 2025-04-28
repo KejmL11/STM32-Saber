@@ -547,7 +547,6 @@ HAL_StatusTypeDef HAL_SD_InitCard(SD_HandleTypeDef *hsd)
 #else
   sdmmc_clk = sdmmc_clk/(2U*Init.ClockDiv);
 #endif
-  HAL_Delay(1U+ (74U*1000U/(sdmmc_clk)));
 
   /* Identify card operating voltage */
   errorstate = SD_PowerON(hsd);
@@ -557,6 +556,8 @@ HAL_StatusTypeDef HAL_SD_InitCard(SD_HandleTypeDef *hsd)
     hsd->ErrorCode |= errorstate;
     return HAL_ERROR;
   }
+
+  HAL_Delay(1U+ (74U*1000U/(sdmmc_clk)));
 
   /* Card initialization */
   errorstate = SD_InitCard(hsd);
